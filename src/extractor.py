@@ -1,133 +1,59 @@
-# src/extractor.py
-"""Extract data from source with watermark tracking"""
+"""Count source rows newer than each source's saved watermark."""
 
 import sqlite3
-from datetime import datetime
+from contextlib import closing
+from pathlib import Path
+
+from src.database import DEFAULT_DB_PATH, PROJECT_ROOT
 from src.watermark import WatermarkManager
 
+
 class DataExtractor:
-    """Extract data from telecom database"""
-    
-    def __init__(self, db_path: str = 'telecom.db'):
-        self.db_path = db_path
-        self.watermark_mgr = WatermarkManager(db_path)
-    
+    """Inspect incremental source rows in the telecom SQLite database."""
+
+    SOURCES = {
+        "subscribers": ("staging_subscribers", "loaded_at"),
+        "cdr": ("staging_cdr", "timestamp_start"),
+        "transactions": ("staging_transactions", "timestamp"),
+    }
+
+    def __init__(self, db_path=DEFAULT_DB_PATH):
+        path = Path(db_path)
+        self.db_path = path if path.is_absolute() else PROJECT_ROOT / path
+        self.watermark_mgr = WatermarkManager(self.db_path)
+
+    def _extract_since_watermark(self, source: str) -> dict:
+        if source not in self.SOURCES:
+            raise ValueError(f"Unknown data source: {source}")
+        table, timestamp_column = self.SOURCES[source]
+        last_watermark = self.watermark_mgr.get_watermark(source)
+        query = (
+            f'SELECT COUNT(*), MAX("{timestamp_column}") FROM "{table}" '
+            f'WHERE "{timestamp_column}" > ?'
+        )
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            count, latest = conn.execute(query, (last_watermark,)).fetchone()
+
+        label = {"subscribers": "Subscribers", "cdr": "CDR Records", "transactions": "Transactions"}[source]
+        print("\n" + "=" * 60)
+        print(f"EXTRACTING: {label}")
+        print("=" * 60)
+        print(f"Records to load: {count:,}")
+        print(f"Latest timestamp: {latest}")
+        if latest is not None:
+            self.watermark_mgr.update_watermark(source, latest)
+        return {
+            "source": source,
+            "records_extracted": count,
+            "new_watermark": latest or last_watermark,
+            "status": "SUCCESS",
+        }
+
     def extract_subscribers(self) -> dict:
-        """Extract subscriber data since last watermark"""
-        
-        print("\n" + "=" * 60)
-        print("EXTRACTING: Subscribers")
-        print("=" * 60)
-        
-        # Get watermark
-        last_watermark = self.watermark_mgr.get_watermark('subscribers')
-        
-        # Query data
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        query = """
-        SELECT COUNT(*) as count, MAX(loaded_at) as latest
-        FROM staging_subscribers
-        WHERE loaded_at > ?
-        """
-        
-        cursor.execute(query, (last_watermark,))
-        result = cursor.fetchone()
-        count, latest = result
-        
-        conn.close()
-        
-        print(f"Records to load: {count:,}")
-        print(f"Latest timestamp: {latest}")
-        
-        # Update watermark
-        if latest:
-            self.watermark_mgr.update_watermark('subscribers', latest)
-        
-        return {
-            'source': 'subscribers',
-            'records_extracted': count,
-            'new_watermark': latest,
-            'status': 'SUCCESS'
-        }
-    
+        return self._extract_since_watermark("subscribers")
+
     def extract_cdr(self) -> dict:
-        """Extract CDR data since last watermark"""
-        
-        print("\n" + "=" * 60)
-        print("EXTRACTING: CDR Records")
-        print("=" * 60)
-        
-        # Get watermark
-        last_watermark = self.watermark_mgr.get_watermark('cdr')
-        
-        # Query data
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        query = """
-        SELECT COUNT(*) as count, MAX(timestamp_start) as latest
-        FROM staging_cdr
-        WHERE timestamp_start > ?
-        """
-        
-        cursor.execute(query, (last_watermark,))
-        result = cursor.fetchone()
-        count, latest = result
-        
-        conn.close()
-        
-        print(f"Records to load: {count:,}")
-        print(f"Latest timestamp: {latest}")
-        
-        # Update watermark
-        if latest:
-            self.watermark_mgr.update_watermark('cdr', latest)
-        
-        return {
-            'source': 'cdr',
-            'records_extracted': count,
-            'new_watermark': latest,
-            'status': 'SUCCESS'
-        }
-    
+        return self._extract_since_watermark("cdr")
+
     def extract_transactions(self) -> dict:
-        """Extract transaction data since last watermark"""
-        
-        print("\n" + "=" * 60)
-        print("EXTRACTING: Transactions")
-        print("=" * 60)
-        
-        # Get watermark
-        last_watermark = self.watermark_mgr.get_watermark('transactions')
-        
-        # Query data
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        query = """
-        SELECT COUNT(*) as count, MAX(timestamp) as latest
-        FROM staging_transactions
-        WHERE timestamp > ?
-        """
-        
-        cursor.execute(query, (last_watermark,))
-        result = cursor.fetchone()
-        count, latest = result
-        
-        conn.close()
-        
-        print(f"Records to load: {count:,}")
-        print(f"Latest timestamp: {latest}")
-        
-        # Update watermark
-        if latest:
-            self.watermark_mgr.update_watermark('transactions', latest)
-        
-        return {
-            'source': 'transactions',
-            'records_extracted': count,
-            'new_watermark': latest,
-            'status': 'SUCCESS'
-        }
+        return self._extract_since_watermark("transactions")

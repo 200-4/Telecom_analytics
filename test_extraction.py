@@ -1,44 +1,38 @@
-#test_extraction.py
-"""Test data extraction with watermarks"""
+"""Run a repeatable full baseline extraction-count check."""
 from src.extractor import DataExtractor
 from src.watermark import WatermarkManager
-import os
+
 
 def main():
-    print("\n" + "=" * 60)
-    print("PART 1: INTERGRATION BASELINE TEST")
-    print("=" * 60)
+    extractor = DataExtractor("telecom.db")
+    watermark_mgr = WatermarkManager("telecom.db")
 
-    #Initialize
-    extractor = DataExtractor('telecom.db')
-    watermark_mgr = WatermarkManager('telecom.db')
+    # This baseline intentionally replays all rows on every run.
+    watermark_mgr.reset_watermarks()
 
-    #Show initial watermarks
-    print("\n Before Extraction:")
+    print("\n" + "=" * 69)
+    print("PART 1: INTEGRATION BASELINE TEST")
+    print("=" * 69)
+
+    print("\n BEFORE EXTRACTION:")
     watermark_mgr.show_all_watermarks()
 
-    #Extract data
-    print("\n Extracting DATA ...")
-
-    result_subscribers = extractor.extract_subscribers()
+    print("\n EXTRACTING DATA...")
+    result_subs = extractor.extract_subscribers()
     result_cdr = extractor.extract_cdr()
     result_trans = extractor.extract_transactions()
 
-    #Show updated watermarks
-    print("\n After Extraction:")
+    print("\n AFTER EXTRACTION:")
     watermark_mgr.show_all_watermarks()
 
-    #summary
-    print("\n" + "=" * 60)
-    print("SUMMARY OF EXTRACTION RESULTS")
-    print("="*30)
-    print(f"Subscribers Extracted: {result_subscribers['records_extracted']:,} ")
-    print(f"CDR Records Extracted: {result_cdr['records_extracted']:,}")
+    print("\n" + "=" * 69)
+    print("EXTRACTION SUMMARY")
+    print("=" * 69)
+    print(f"Subscribers extracted: {result_subs['records_extracted']:,}")
+    print(f"CDR records extracted: {result_cdr['records_extracted']:,}")
     print(f"Transactions extracted: {result_trans['records_extracted']:,}")
-    print(f"\n All extractions complete!")
+    print("\nAll extractions complete!")
+
 
 if __name__ == "__main__":
     main()
-
-
-    
