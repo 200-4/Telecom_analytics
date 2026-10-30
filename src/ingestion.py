@@ -29,11 +29,12 @@ def run_ingestion(pipeline_name:str,
     run_id = runs.start_run(pipeline_name)
     loaded = 0
     failed = 0
+    records = []
+    valid = []
 
     try:
         records = fetch()
 
-        valid = []
         for record in records:
             is_valid, reason = validate_fn(record)
             if is_valid:
@@ -44,18 +45,22 @@ def run_ingestion(pipeline_name:str,
 
         for start in range(0, len(valid), batch_size):
             batch = valid[start:start + batch_size]
-            load(batch)
-            loaded += len(batch)
+            inserted = load(batch)
+            # Loaders that return the number of new rows report that;
+            # loaders that return None are assumed to have loaded the whole batch.
+            loaded += inserted if inserted is not None else len(batch)
 
     except Exception as exc:
         runs.fail_run(run_id, str(exc), rows_loaded=loaded)
         raise
 
+    skipped = len(valid) - loaded
     runs.finish_run(run_id, rows_loaded=loaded, rows_failed=failed)
 
     return {
         'run_id': run_id,
         'fetched': len(records),
         'loaded': loaded,
+        'skipped_duplicates': skipped,
         'failed': failed,
     }
